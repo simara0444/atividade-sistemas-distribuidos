@@ -15,5 +15,5 @@ CREATE TABLE IF NOT EXISTS tokens (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- indices opcionais
+
 CREATE INDEX IF NOT EXISTS idx_tokens_userid ON tokens(user_id);

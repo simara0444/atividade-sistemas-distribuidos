@@ -13,7 +13,7 @@ async def startup():
 async def shutdown():
     await close_db()
 
-# RF01 - signup
+
 @app.post("/api/v1/auth/signup", response_model=schemas.UserResponse)
 async def signup(payload: schemas.SignupRequest):
     if await crud.buscar_usuario_por_email(payload.email):
@@ -29,7 +29,7 @@ async def signup(payload: schemas.SignupRequest):
     user["token"] = token
     return user
 
-# RF02 - login
+
 @app.post("/api/v1/auth/login", response_model=schemas.TokenResponse)
 async def login(payload: schemas.LoginRequest):
     user = await crud.buscar_usuario_por_email(payload.login)
@@ -39,7 +39,7 @@ async def login(payload: schemas.LoginRequest):
     await crud.inserir_token(token, user["id"])
     return {"token": token}
 
-# RF03 - recuperar senha
+
 @app.post("/api/v1/auth/recuperar-senha", response_model=schemas.TokenResponse)
 async def recuperar_senha(payload: schemas.RecuperarSenhaRequest):
     user = await crud.buscar_usuario_por_email_e_documento(payload.email, payload.documento)
@@ -51,7 +51,7 @@ async def recuperar_senha(payload: schemas.RecuperarSenhaRequest):
     await crud.inserir_token(new_token, user["id"])
     return {"token": new_token}
 
-# RF04 - logout
+
 @app.post("/api/v1/auth/logout")
 async def logout(authorization: str | None = Header(None)):
     token = auth_utils.get_token_from_header(authorization)
@@ -62,7 +62,7 @@ async def logout(authorization: str | None = Header(None)):
     await crud.deletar_token(token)
     return {"detail": "Logout realizado com sucesso"}
 
-# RF05 - me
+
 @app.get("/api/v1/auth/me", response_model=schemas.UserResponse)
 async def me(authorization: str | None = Header(None)):
     token = auth_utils.get_token_from_header(authorization)
