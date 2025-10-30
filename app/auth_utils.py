@@ -15,10 +15,6 @@ def parse_token(token: str):
     return None
 
 def get_token_from_header(authorization_header: str | None) -> str | None:
-    """
-    Espera header no formato:
-    Authorization: SDWork <token>
-    """
     if not authorization_header:
         return None
     parts = authorization_header.split(" ", 1)
