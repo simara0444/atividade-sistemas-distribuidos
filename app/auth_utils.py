@@ -1,12 +1,18 @@
-import base64
+from cryptography.fernet import Fernet
+import os
+
+SECRET_KEY = os.getenv("SECRET_KEY", "SUA_CHAVE_AQUI_COM_32BYTES==")
+fernet = Fernet(SECRET_KEY.encode())
 
 def make_token(email: str, documento: str) -> str:
     raw = f"{email}:{documento}"
-    return base64.b64encode(raw.encode()).decode()
+    token_bytes = fernet.encrypt(raw.encode())
+    return token_bytes.decode()
 
 def parse_token(token: str):
     try:
-        decoded = base64.b64decode(token.encode()).decode()
+        decoded_bytes = fernet.decrypt(token.encode())
+        decoded = decoded_bytes.decode()
         if ":" in decoded:
             email, documento = decoded.split(":", 1)
             return email, documento
