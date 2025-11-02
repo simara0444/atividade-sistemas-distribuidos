@@ -1,7 +1,7 @@
 from cryptography.fernet import Fernet
 import os
 
-SECRET_KEY = os.getenv("SECRET_KEY", "SUA_CHAVE_AQUI_COM_32BYTES==")
+SECRET_KEY = os.getenv("SECRET_KEY")
 fernet = Fernet(SECRET_KEY.encode())
 
 def make_token(email: str, documento: str) -> str:
