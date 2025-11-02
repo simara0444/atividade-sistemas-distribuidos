@@ -2,10 +2,13 @@ from fastapi import FastAPI, HTTPException, Header
 from app.db import connect_db, close_db
 from app import crud, auth_utils, schemas
 from datetime import datetime, timedelta, timezone
+from app.redis_client import redis_client, connect_redis
 import uvicorn
 
 MAX_ATTEMPTS = 3
 BLOCK_MINUTES = 10
+ME_RATE_LIMIT = 5
+ME_RATE_EXPIRE = 60  
 
 app = FastAPI(title="Microsserviço de Autenticação - SDWork")
 
@@ -14,7 +17,11 @@ app = FastAPI(title="Microsserviço de Autenticação - SDWork")
 async def startup():
     print(">>> startup: conectando ao DB")
     await connect_db()
-    print(">>> startup: conectado")
+    print(">>> DB conectado")
+    
+    print(">>> conectando ao Redis")
+    await connect_redis()
+    print(">>> Redis conectado")
 
 
 @app.on_event("shutdown")
@@ -42,62 +49,33 @@ async def signup(payload: schemas.SignupRequest):
 
 @app.post("/api/v1/auth/login", response_model=schemas.TokenResponse)
 async def login(payload: schemas.LoginRequest):
-    print(f"[login] tentativa para login={payload.login}")
     user = await crud.buscar_usuario_por_email(payload.login)
     attempt = await crud.buscar_login_attempt(payload.login)
     now = datetime.now(timezone.utc)
 
-    print(f"[login] now={now.isoformat()}")
-    print(f"[login] user found? {'yes' if user else 'no'}")
-    print(f"[login] attempt row={attempt}")
-
-   
     if attempt:
-        last = attempt.get("last_attempt")
-        print(f"[login] raw last_attempt={last!r} (type {type(last)})")
-
+        last = attempt.get("last_attempt") or now
         if isinstance(last, str):
             try:
                 last = datetime.fromisoformat(last.replace("Z", "+00:00"))
-                print(f"[login] parsed last_attempt as {last.isoformat()}")
-            except Exception as e:
-                print(f"[login] ERRO ao parse last_attempt string: {e}; setando last = now")
+            except Exception:
                 last = now
-
-       
-        if last is None:
-            print("[login] last_attempt is None -> setando last = now")
-            last = now
-
-       
         if last.tzinfo is None:
             last = last.replace(tzinfo=timezone.utc)
-            print(f"[login] last_attempt tzinfo ajustado -> {last.isoformat()}")
-
         diff = now - last
-        minutos_passados = diff.total_seconds() / 60.0
-        print(f"[login] tentativa_count={attempt.get('tentativa_count')} last={last.isoformat()} diff_minutes={minutos_passados:.2f}")
-
         if attempt.get("tentativa_count", 0) >= MAX_ATTEMPTS:
             if diff < timedelta(minutes=BLOCK_MINUTES):
-                print(f"[login] BLOQUEADO: faltam {(BLOCK_MINUTES - minutos_passados):.2f} minutos")
                 raise HTTPException(
                     status_code=403,
                     detail=f"Usuário bloqueado por {BLOCK_MINUTES} minutos devido a tentativas falhas"
                 )
             else:
-        
-                print("[login] bloqueio expirou -> zerando contador no DB")
                 await crud.criar_ou_atualizar_login_attempt(payload.login, sucesso=True)
 
-
     if not user or user["senha"] != payload.senha:
-        print("[login] credenciais inválidas -> incrementando tentativa")
         await crud.criar_ou_atualizar_login_attempt(payload.login, sucesso=False)
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
 
-  
-    print("[login] credenciais corretas -> resetando tentativa e gerando token")
     await crud.criar_ou_atualizar_login_attempt(payload.login, sucesso=True)
     token = auth_utils.make_token(user["email"], user["documento"])
     await crud.inserir_token(token, user["id"])
@@ -128,11 +106,27 @@ async def logout(authorization: str | None = Header(None)):
     return {"detail": "Logout realizado com sucesso"}
 
 
+async def check_me_throttle(token: str):
+    """Checa se o usuário excedeu o limite /me"""
+    if not redis_client:
+        return  # Redis não disponível, apenas permite
+    key = f"me:{token}"
+    count = await redis_client.get(key)
+    count = int(count) if count else 0
+    if count >= ME_RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Muitas requisições em /me, tente mais tarde")
+    await redis_client.incr(key)
+    await redis_client.expire(key, ME_RATE_EXPIRE)
+
+
 @app.get("/api/v1/auth/me", response_model=schemas.UserResponse)
 async def me(authorization: str | None = Header(None)):
     token = auth_utils.get_token_from_header(authorization)
     if not token:
         raise HTTPException(status_code=400, detail="Token ausente")
+
+    await check_me_throttle(token)
+
     token_row = await crud.buscar_token(token)
     if not token_row:
         raise HTTPException(status_code=400, detail="Token inválido")
@@ -143,4 +137,4 @@ async def me(authorization: str | None = Header(None)):
 
 
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
